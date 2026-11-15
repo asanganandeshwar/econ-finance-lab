@@ -150,7 +150,7 @@ with tabs[0]:
     measures = ["absolute"] + ["relative"] * len(drivers) + ["total"]
     fig = go.Figure(go.Waterfall(
         x=list(b.index), y=list(b.values), measure=measures,
-        text=[f"${v:,.0f}m" for v in b.values], textposition="outside",
+        text=[f"-${-v:,.0f}m" if v < 0 else f"${v:,.0f}m" for v in b.values], textposition="outside",
         increasing=dict(marker=dict(color=GOOD)), decreasing=dict(marker=dict(color=BAD)),
         totals=dict(marker=dict(color=GREY)), connector=dict(line=dict(color=GREY, width=1))))
     fig.update_layout(title="Equity value bridge, entry to exit ($m): green adds value, red subtracts",
