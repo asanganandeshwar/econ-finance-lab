@@ -118,3 +118,34 @@ def test_lbo_cim_import():
     [b for b in at.button if b.label == "Load inputs"][0].click().run()
     ok(at)
     assert at.session_state["lbo_name"] == "Acme HVAC"
+
+
+@pytest.mark.parametrize("preset", ["Stock-and-cash strategic deal", "All-cash, debt-funded acquisition"])
+def test_merger_presets(preset):
+    at = page("merger-analyzer/app.py")
+    [s for s in at.sidebar.selectbox if s.label == "Illustrative case"][0].set_value(preset).run()
+    ok(at)
+    assert any(m.label == "EPS impact, year 2" for m in at.metric)
+    assert any(m.label == "HHI, post-merger" for m in at.metric)
+
+
+@pytest.mark.parametrize("stock,premium,integ", [(0, 0.0, False), (100, 60.0, True), (25, 15.0, False)])
+def test_merger_terms(stock, premium, integ):
+    at = page("merger-analyzer/app.py")
+    [s for s in at.sidebar.slider if s.label == "Stock consideration %"][0].set_value(stock).run()
+    [n for n in at.sidebar.number_input if n.label == "Premium %"][0].set_value(premium).run()
+    if integ:
+        at.sidebar.checkbox[0].check().run()
+    ok(at)
+
+
+@pytest.mark.parametrize("pair,eff", [(("Firm A", "Firm B"), 0.0), (("Firm D", "Firm E"), 10.0),
+                                      (("Firm A", "Firm C"), 30.0)])
+def test_merger_competition(pair, eff):
+    at = page("merger-analyzer/app.py")
+    sel = {s.label: s for s in at.selectbox}
+    sel["Merging firm 1"].set_value(pair[0]).run()
+    sel = {s.label: s for s in at.selectbox}
+    sel["Merging firm 2"].set_value(pair[1]).run()
+    [s for s in at.slider if s.label.startswith("Marginal-cost savings")][0].set_value(eff).run()
+    ok(at)

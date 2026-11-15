@@ -252,7 +252,7 @@ with tabs[4]:
             colorscale=[[0, "#F2D7D5"], [0.5, "#FFFFFF"], [1, "#B9C9F5"]], zmid=target * 100, showscale=False,
             xgap=2, ygap=2))
         fig.update_layout(title=title, height=400, xaxis_title=xtitle, yaxis_title=ytitle,
-                          yaxis=dict(showgrid=False))
+                          xaxis=dict(type="category"), yaxis=dict(showgrid=False, type="category"))
         return fig
 
     em = tuple(np.round(np.arange(deal.entry_multiple - 2, deal.entry_multiple + 2.01, 1.0), 1))
