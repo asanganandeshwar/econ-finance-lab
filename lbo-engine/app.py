@@ -135,7 +135,7 @@ b = r.bridge
 drivers = b.drop(["Entry equity", "Exit equity"])
 top = drivers.abs().idxmax()
 st.info(f"**Reading.** {deal.name} returns **{r.moic:.2f}x / {r.irr:.1%}** over five years. "
-        f"The largest value driver is **{top[0].lower() + top[1:] if not top.startswith("EBITDA") else top}** (${drivers[top]:,.0f}m, "
+        f"The largest value driver is **{top[0].lower() + top[1:] if not top.startswith('EBITDA') else top}** (${drivers[top]:,.0f}m, "
         f"{drivers[top] / (b['Exit equity'] - b['Entry equity']):.0%} of the equity gain). "
         + (f"At {deal.entry_multiple:.1f}x the deal clears the {target:.0%} hurdle with "
            f"{(max_m - deal.entry_multiple):.1f}x of headroom on price." if max_m and max_m >= deal.entry_multiple
