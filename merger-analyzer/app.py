@@ -144,9 +144,9 @@ with deal_tab:
             connector=dict(line=dict(color=GREY, width=1))))
         costs = -(y2["Interest on new debt"] + y2["Forgone interest on cash"] + y2["Financing fee amortization"]
                   + y2["Intangible amortization"] + y2["Integration costs"])
-        t2 = (f"Financing and amortization costs (${costs:,.0f}M) exceed synergies (${y2['Synergies']:,.0f}M)"
+        t2 = (f"Deal costs of ${costs:,.0f}M outweigh ${y2['Synergies']:,.0f}M of synergies"
               if costs > y2["Synergies"] else
-              f"Synergies (${y2['Synergies']:,.0f}M) exceed financing and amortization costs (${costs:,.0f}M)")
+              f"${y2['Synergies']:,.0f}M of synergies outweigh ${costs:,.0f}M of deal costs")
         fig.update_layout(title=ui.exhibit(2, t2), yaxis_title="$M, after tax", height=420, showlegend=False)
         st.plotly_chart(fig, width="stretch")
     ui.source(f"Pro forma shares: {deal.acquirer.shares:,.0f}M existing + {r.new_shares:,.0f}M issued at "
