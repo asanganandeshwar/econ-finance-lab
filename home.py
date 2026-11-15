@@ -15,7 +15,7 @@ cards = [
      "Base-case IRR at 9.5x entry and exit, 5.5x leverage",
      "Five-year buyout model with a tranche-level debt schedule and cash sweep, an exact value-creation "
      "bridge, a maximum-price solver, sensitivity grids and Monte Carlo exit risk."),
-    ("min-wage-did/app.py", "Labor economics", "The $20 Fast-Food Wage", "−2.9%",
+    ("min-wage-did/app.py", "Labor economics", "$20 Fast-Food Wage", "−2.9%",
      "Fast-food employment vs. other states; not significant (p = 0.16)",
      "Difference-in-differences, event study, synthetic control and triple difference on BLS QCEW data, "
      "with permutation inference for a single treated state."),

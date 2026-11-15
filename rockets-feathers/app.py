@@ -75,10 +75,17 @@ c[3].metric("Consumer cost per 10¢ decline", f"${extra / 1e6:,.0f}M",
             help="Area between the two response curves × $0.10 × weekly gallons.")
 
 h_up, h_dn = half_life(up), half_life(dn)
-fmt = lambda h: f"{h} week{'s' if h != 1 else ''}" if h is not None else f"more than {horizon} weeks"  # noqa: E731
+def fmt(h):
+    if h is None:
+        return f"takes more than {horizon} weeks"
+    if h == 0:
+        return "occurs within the first week"
+    return f"takes {h} week{'s' if h != 1 else ''}"
+
+
 ui.finding(
     f"{region}, {link.lower()}: {up[0]:.0%} of a cost increase is passed through in the same week, against "
-    f"{dn[0]:.0%} of a decrease. Half of the long-run adjustment takes {fmt(h_up)} for increases and "
+    f"{dn[0]:.0%} of a decrease. Half of the long-run adjustment {fmt(h_up)} for increases and "
     f"{fmt(h_dn)} for decreases. "
     + ("Symmetry is rejected at the 5% level." if f.wald_all_p < 0.05 else
        "Symmetry is not rejected at the 5% level.")
