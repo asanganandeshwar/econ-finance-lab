@@ -1,50 +1,38 @@
-# Rockets & Feathers
+# Rockets and Feathers
 
-An industrial organization tool that tests whether US gasoline prices **rise like rockets and fall like
-feathers**, and finds the stage of the supply chain where the asymmetry comes from.
+Do gasoline prices rise faster than they fall? This project estimates how quickly crude oil and wholesale cost
+changes reach retail prices, tests whether increases and decreases pass through at different speeds, and
+identifies the stage of the supply chain where any asymmetry arises.
 
-## Headline results (EIA weekly data, 2010–2026, Brent crude)
+## Results (United States, weekly EIA data, 2010–2026, Brent crude)
 
-| United States | Increase | Decrease |
-| --- | --- | --- |
-| Crude → retail, same-week pass-through | 63% | 23% |
-| Wholesale → retail, same-week pass-through | 62% | 21% |
-| Crude → wholesale, symmetry test (Wald p) | 0.79 | |
-| Wholesale → retail, symmetry test (Wald p) | < 0.001 | |
+| Link | Same-week pass-through, increases | Same-week, decreases | Symmetry test p |
+| --- | --- | --- | --- |
+| Crude → retail (full chain) | 63% | 23% | 0.003 |
+| Wholesale → retail (stations) | 62% | 21% | < 0.001 |
+| Crude → wholesale (refiners) | 96% | 79% | 0.79 |
 
-Gas stations pass about 60% of a cost increase to the pump within a week, but only about 20% of a decrease, and
-decreases take about 5 weeks to catch up. The asymmetry sits at the **retail** stage: refiners pass crude price
-changes through roughly symmetrically. That pattern is consistent with consumer search-cost and focal-price
-explanations rather than refinery capacity. Nationally, the slow decline costs consumers roughly **$220 million
-per 10-cent drop in costs**.
+Stations pass about 60% of a cost increase to the pump within a week but only about 20% of a decrease. Refiner
+pricing is statistically symmetric, so the asymmetry arises at retail, which is consistent with consumer search
+costs and focal-point pricing. Retail spreads average 96¢ per gallon when wholesale costs are falling and 85¢ when
+they are rising. The slower pass-through of decreases costs U.S. consumers about $220 million for each 10-cent fall
+in costs.
 
-## What the tool does
+## Methods
 
 - Asymmetric error-correction model (Borenstein, Cameron and Gilbert 1997) with Newey–West standard errors
 - Wald tests of symmetry, lag by lag and cumulatively; Engle–Granger cointegration diagnostics
-- Simulated cumulative response curves for a permanent ±10¢ cost change
-- **Supply-chain decomposition**: crude → wholesale (refiners), wholesale → retail (stations), and the full chain
-- **Margin analysis**: retail spreads when costs are rising vs falling
-- **Regional comparison** across the US, California, and the five PADD regions
-- Consumer-cost estimate in dollars, based on regional gallon volumes
-
-## Run it
-
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r ../requirements.txt
-python fetch_eia.py        # downloads 12 weekly EIA price series (no API key needed)
-streamlit run app.py
-```
+- Simulated cumulative response to a permanent ±10¢ cost change
+- Estimates for each link of the supply chain and for the United States, California and the five PADD regions
 
 ## Files
 
-- `fetch_eia.py`: downloads crude, wholesale and retail gasoline prices from EIA
-- `rf.py`: model estimation, Wald tests, impulse-response simulation, margin analysis
+- `fetch_eia.py`: downloads 12 weekly EIA price series
+- `rf.py`: estimation, tests and response simulation
 - `app.py`: Streamlit interface
 
 ## Limitations
 
-Retail prices include taxes, which change in discrete steps. The long-run equation is in nominal levels, and
-California's retail–wholesale spread shifts structurally (cap-and-trade, LCFS, the 2015 Torrance refinery
-outage), so cointegration is weak there and long-horizon responses should be read with care.
+Retail prices include taxes, which change in discrete steps. The long-run relationship is estimated in nominal
+levels. California's retail–wholesale spread shifts with state fuel policy and refinery outages, which weakens
+cointegration there.

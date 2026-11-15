@@ -1,20 +1,22 @@
-"""Minimum Wage Policy Evaluator: interactive DiD / event study / synthetic control.
+"""California's $20 fast-food wage: difference-in-differences, event study, synthetic control.
 
-Run:  streamlit run app.py
+Run:  streamlit run streamlit_app.py  (from the repository root)
 """
+import sys
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent))
+HERE = Path(__file__).parent
+for p in (HERE, HERE.parent):
+    if str(p) not in sys.path:
+        sys.path.insert(0, str(p))
 import did  # noqa: E402
-
-st.set_page_config(page_title="Minimum Wage Policy Evaluator", layout="wide")
-
-ACCENT, GREY, LIGHT = "#1f5fbf", "#8a8f98", "rgba(138,143,152,0.18)"
+import ui  # noqa: E402
+from ui import GREY, LIGHT, NAVY, SKY  # noqa: E402
 
 
 @st.cache_data
@@ -23,6 +25,29 @@ def load():
 
 
 df = load()
+
+
+@st.cache_data(show_spinner=False, max_entries=64)
+def cached_did(spec):
+    return did.run_did(df, spec)
+
+
+@st.cache_data(show_spinner="Fitting synthetic control", max_entries=64)
+def cached_synth(spec):
+    return did.run_synth(cached_did(spec))
+
+
+@st.cache_data(show_spinner="Estimating specifications", max_entries=32)
+def cached_curve(spec):
+    return did.spec_curve(df, spec)
+
+
+@st.cache_data(show_spinner=False, max_entries=64)
+def cached_twfe(spec):
+    m = did.twfe_regression(df, spec)
+    return dict(b=m.params["treat_post"], se=m.std_errors["treat_post"], p=m.pvalues["treat_post"], n=m.nobs)
+
+
 states = sorted(df.state.unique())
 quarters = [did.lab(t) for t in sorted(df.t.unique())]
 
@@ -30,11 +55,10 @@ quarters = [did.lab(t) for t in sorted(df.t.unique())]
 st.sidebar.header("Policy")
 treated = st.sidebar.selectbox("Treated state", states, index=states.index("CA"))
 pre_end = st.sidebar.selectbox("Last pre-period quarter", quarters, index=quarters.index("2023Q3"),
-                               help="CA signed AB 1228 on Sep 28, 2023. Quarters between this and the "
-                                    "policy start are shown as an anticipation window and excluded from the estimate.")
+                               help="AB 1228 was signed on Sep 28, 2023. Quarters between signing and the "
+                                    "effective date are excluded from the estimate.")
 post_start = st.sidebar.selectbox("First treated quarter", quarters, index=quarters.index("2024Q2"),
-                                  help="The $20 fast-food wage took effect Apr 1, 2024.")
-
+                                  help="The $20 wage took effect on Apr 1, 2024.")
 st.sidebar.header("Specification")
 sector_name = st.sidebar.radio("Sector", list(did.SECTORS))
 outcome_name = st.sidebar.radio("Outcome", list(did.OUTCOMES))
@@ -46,176 +70,196 @@ if ctrl_name == "Custom":
 else:
     controls = sets[ctrl_name]
 sample_start = st.sidebar.selectbox("Sample start", quarters, index=quarters.index("2022Q1"),
-                                    help="2022Q1 avoids the uneven post-COVID restaurant rebound.")
-trend = st.sidebar.checkbox("State-specific linear trends", value=False)
+                                    help="2022Q1 avoids the uneven post-pandemic restaurant recovery.")
+trend = st.sidebar.checkbox("State-specific linear trends")
+
+ui.header("Labor economics", "California's $20 Fast-Food Minimum Wage",
+          "Did AB 1228, which raised pay at chains with 60+ locations from $16 to $20 an hour in April 2024, "
+          "reduce fast-food employment? Estimates compare California with other states before and after the "
+          "law, using BLS Quarterly Census of Employment and Wages data.")
 
 if len(controls) < 2:
-    st.warning("Pick at least two control states.")
+    st.warning("Select at least two control states.")
+    st.stop()
+if did.tq(post_start) <= did.tq(pre_end) or did.tq(pre_end) < did.tq(sample_start) + 3:
+    st.warning("The pre-period needs at least four quarters and must end before the first treated quarter.")
     st.stop()
 
 spec = did.Spec(treated, tuple(controls), did.OUTCOMES[outcome_name], did.SECTORS[sector_name],
                 sample_start, pre_end, post_start, trend)
-res = did.run_did(df, spec)
-syn = did.run_synth(res)
-pct = lambda x: 100 * (np.exp(x) - 1)
+res = cached_did(spec)
+syn = cached_synth(spec)
+pct = lambda x: 100 * (np.exp(x) - 1)  # noqa: E731
 xl = [did.lab(t) for t in res.gap.index]
+sector_short = sector_name.split(" (")[0].lower()
+outcome_lc = outcome_name.lower()
 
-# ---------------------------------------------------------------- header
-st.title("Minimum Wage Policy Evaluator")
-st.caption(f"{treated} vs {ctrl_name.lower()} · {sector_name} · {outcome_name.lower()} · "
-           f"BLS QCEW, private ownership, state level, {sample_start} to {xl[-1]}")
-
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("DiD estimate", f"{pct(res.est):+.2f}%", help="Average post-period gap minus pre-period gap, in percent.")
-c2.metric("Permutation p-value", f"{res.p_perm:.3f}",
-          help=f"Share of {len(res.placebo_est)} placebo states with an effect at least as large.")
-c3.metric("Synthetic control", f"{pct(syn['est']):+.2f}%", help=f"Permutation p = {syn['p']:.3f} (RMSPE ratio).")
+# ---------------------------------------------------------------- headline
+c = st.columns(4)
+c[0].metric("Difference-in-differences", f"{pct(res.est):+.1f}%")
+c[1].metric("Permutation p-value", f"{res.p_perm:.2f}",
+            help=f"Share of {len(res.placebo_est)} placebo states with an effect at least as large.")
+c[2].metric("Synthetic control", f"{pct(syn['est']):+.1f}%", help=f"Permutation p = {syn['p']:.2f}")
 if spec.outcome == "emp" and spec.sector != "ddd":
-    c4.metric("Implied jobs", f"{(np.exp(res.est) - 1) * res.base_level:+,.0f}",
-              help=f"Applied to {treated}'s pre-period average of {res.base_level:,.0f} workers.")
+    c[3].metric("Implied jobs", f"{(np.exp(res.est) - 1) * res.base_level:+,.0f}",
+                help=f"Applied to the pre-period average of {res.base_level:,.0f} workers.")
 else:
-    c4.metric("Control states", len(res.placebo_est))
+    c[3].metric("Control states", len(res.placebo_est))
 
-# auto-written read of the result
 sig = res.p_perm < 0.10
-direction = "lower" if res.est < 0 else "higher"
-st.info(
-    f"**Reading.** After the policy, {treated}'s {sector_name.split(' (')[0].lower()} "
-    f"{outcome_name.lower()} ran {abs(pct(res.est)):.1f}% {direction} than the control-group "
-    f"({ctrl_name.lower()}) benchmark, relative to the pre-period. "
-    + (f"Only {res.p_perm:.0%} of placebo states show a gap this large, so the effect is distinguishable from noise."
-       if sig else
-       f"{res.p_perm:.0%} of placebo states show a gap at least this large, so the estimate is **not** "
-       f"distinguishable from ordinary state-to-state variation.")
+ui.finding(
+    f"{treated} {sector_short} {outcome_lc} was {abs(pct(res.est)):.1f}% "
+    f"{'lower' if res.est < 0 else 'higher'} than the control group after the policy, relative to the "
+    f"pre-period. "
+    + (f"Only {res.p_perm:.0%} of placebo states show an effect this large, so the result is statistically "
+       f"distinguishable from normal variation across states." if sig else
+       f"{res.p_perm:.0%} of placebo states show an effect at least this large, so the result is not "
+       f"statistically distinguishable from normal variation across states.")
 )
 
-tabs = st.tabs(["Trends", "Event study", "Placebo test", "Synthetic control",
-                "Specification curve", "Regression table", "Method"])
+tabs = st.tabs(["Trends", "Event study", "Placebo test", "Synthetic control", "Robustness", "Regression",
+                "Methodology"])
+SRC = (f"Source: BLS QCEW, private ownership, state level, {sample_start}–{xl[-1]}. "
+       f"Seasonality removed with state × quarter-of-year effects estimated on the pre-period.")
+
+
+def policy_lines(fig):
+    fig.add_vrect(x0=xl.index(pre_end), x1=xl.index(post_start), fillcolor=LIGHT, opacity=0.6, line_width=0, layer="below",
+                  annotation_text="Signed → effective", annotation_position="top left",
+                  annotation_font=dict(size=11, color="#5A6872"))
+    return fig
+
 
 # ---------------------------------------------------------------- trends
 with tabs[0]:
-    ctrl_mean = res.R[[c for c in res.R.columns if c != treated]].mean(axis=1)
+    ctrl_mean = res.R[[x for x in res.R.columns if x != treated]].mean(axis=1)
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=xl, y=100 * ctrl_mean, name="Control average", line=dict(color=GREY, width=2)))
-    fig.add_trace(go.Scatter(x=xl, y=100 * res.R[treated], name=treated, line=dict(color=ACCENT, width=3)))
-    fig.add_vline(x=xl.index(pre_end), line_dash="dot", line_color=GREY)
-    fig.add_vline(x=xl.index(post_start), line_dash="dash", line_color=ACCENT)
-    fig.add_annotation(x=xl.index(post_start), y=1, yref="paper", text="Policy start", showarrow=False,
-                       xanchor="left", font=dict(color=ACCENT))
-    fig.update_layout(title="Seasonally adjusted log outcome, % deviation from own pre-period mean",
-                      yaxis_title="% vs pre-period", height=440, template="simple_white")
+    fig.add_trace(go.Scatter(x=xl, y=100 * ctrl_mean, name="Control-group average", line=dict(color=GREY, width=2)))
+    fig.add_trace(go.Scatter(x=xl, y=100 * res.R[treated], name=treated, line=dict(color=NAVY, width=3)))
+    policy_lines(fig)
+    fig.update_layout(title=ui.exhibit(1, f"{treated} {sector_short} {outcome_lc} {'fell' if res.est < 0 else 'rose'} "
+                                          f"{abs(pct(res.est)):.1f}% relative to the control group after the policy"),
+                      yaxis_title="% deviation from pre-period mean", height=460)
     st.plotly_chart(fig, width="stretch")
-    st.caption("Each state's quarter-of-year pattern is removed using pre-period data only, so the post-period "
-               "never shapes the baseline.")
+    ui.source(SRC)
 
 # ---------------------------------------------------------------- event study
 with tabs[1]:
     P = res.placebo_gaps
     lo, hi = 100 * P.quantile(0.05, axis=1), 100 * P.quantile(0.95, axis=1)
+    outside = int(((100 * res.gap < lo) | (100 * res.gap > hi))[res.post_mask].sum())
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=xl + xl[::-1], y=list(hi) + list(lo[::-1]), fill="toself", fillcolor=LIGHT,
-                             line=dict(width=0), name="90% placebo band", hoverinfo="skip"))
-    fig.add_trace(go.Scatter(x=xl, y=100 * res.gap, mode="lines+markers", name=f"{treated} gap",
-                             line=dict(color=ACCENT, width=3)))
-    fig.add_hline(y=0, line_color="black", line_width=1)
-    fig.add_vrect(x0=xl.index(pre_end), x1=xl.index(post_start), fillcolor="rgba(31,95,191,0.07)",
-                  line_width=0, annotation_text="anticipation", annotation_position="top left")
-    fig.update_layout(title=f"Event study: {treated} minus control average (%), with placebo-state band",
-                      yaxis_title="Gap, %", height=460, template="simple_white")
+    fig.add_trace(go.Scatter(x=xl + xl[::-1], y=list(hi) + list(lo[::-1]), fill="toself",
+                             fillcolor="rgba(153,196,231,0.35)", line=dict(width=0),
+                             name="90% range of placebo states", hoverinfo="skip"))
+    fig.add_trace(go.Scatter(x=xl, y=100 * res.gap, mode="lines+markers", name=f"{treated} minus controls",
+                             line=dict(color=NAVY, width=3), marker=dict(size=6)))
+    fig.add_hline(y=0, line_color=GREY, line_width=1)
+    policy_lines(fig)
+    fig.update_layout(title=ui.exhibit(2, f"{outside} of {int(res.post_mask.sum())} post-policy quarters fall "
+                                          f"outside the placebo range"),
+                      yaxis_title="Gap vs. control group, %", height=460)
     st.plotly_chart(fig, width="stretch")
-    st.caption("The band holds 90% of the gaps produced by pretending each control state was treated. "
-               "A flat pre-period supports parallel trends; a post-period line outside the band is a real effect.")
+    ui.source("The shaded band contains 90% of the gaps obtained by assigning the policy to each control state "
+              "in turn. A flat pre-period supports the parallel-trends assumption.")
 
 # ---------------------------------------------------------------- placebo
 with tabs[2]:
-    pe = pct(res.placebo_est).sort_values()
-    colors = [GREY] * len(pe)
-    fig = go.Figure(go.Bar(x=pe.index, y=pe.values, marker_color=colors, name="Placebo states"))
-    fig.add_trace(go.Bar(x=[treated], y=[pct(res.est)], marker_color=ACCENT, name=treated))
-    fig.update_layout(title=f"DiD estimate for {treated} vs every placebo state (p = {res.p_perm:.3f})",
-                      yaxis_title="Estimated effect, %", height=440, template="simple_white",
-                      xaxis=dict(categoryorder="total ascending"))
+    pe = pct(res.placebo_est)
+    allv = pd.concat([pe, pd.Series({treated: pct(res.est)})]).sort_values()
+    rank = list(allv.index).index(treated) + 1
+    fig = go.Figure(go.Bar(x=allv.index, y=allv.values,
+                           marker_color=[NAVY if s == treated else SKY for s in allv.index]))
+    fig.add_hline(y=0, line_color=GREY, line_width=1)
+    fig.update_layout(title=ui.exhibit(3, f"{treated} ranks {rank} of {len(allv)} when each state is assigned "
+                                          f"the policy (p = {res.p_perm:.2f})"),
+                      yaxis_title="Estimated effect, %", height=440, showlegend=False)
     st.plotly_chart(fig, width="stretch")
-    st.caption("Randomization inference (Abadie, Diamond and Hainmueller 2010; Conley and Taber 2011). "
-               "With one treated state, this ranking is the honest test.")
+    ui.source("Randomization inference (Abadie, Diamond and Hainmueller 2010; Conley and Taber 2011). "
+              "With one treated state, this ranking is the appropriate significance test.")
 
 # ---------------------------------------------------------------- synth
 with tabs[3]:
-    a, b = st.columns([2, 1])
+    a, b = st.columns([2.2, 1], gap="large")
     with a:
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=xl, y=100 * syn["synthetic"], name=f"Synthetic {treated}",
                                  line=dict(color=GREY, width=2, dash="dash")))
-        fig.add_trace(go.Scatter(x=xl, y=100 * res.R[treated], name=treated, line=dict(color=ACCENT, width=3)))
-        fig.add_vline(x=xl.index(post_start), line_dash="dash", line_color=ACCENT)
-        fig.update_layout(title=f"{treated} vs synthetic {treated} (p = {syn['p']:.3f})",
-                          yaxis_title="% vs pre-period", height=420, template="simple_white")
+        fig.add_trace(go.Scatter(x=xl, y=100 * res.R[treated], name=treated, line=dict(color=NAVY, width=3)))
+        policy_lines(fig)
+        fig.update_layout(title=ui.exhibit(4, f"Synthetic control estimate: {pct(syn['est']):+.1f}% "
+                                              f"(p = {syn['p']:.2f})"),
+                          yaxis_title="% deviation from pre-period mean", height=440)
         st.plotly_chart(fig, width="stretch")
     with b:
-        w = syn["weights"][syn["weights"] > 0.01]
-        st.markdown("**Donor weights**")
-        st.dataframe(w.rename("weight").to_frame().style.format("{:.1%}"), width="stretch")
-        st.caption(f"Post/pre RMSPE ratio: {syn['ratio']:.2f}, ranked against {len(syn['ratios'])} placebo runs.")
+        w = syn["weights"][syn["weights"] > 0.01].head(12)
+        st.markdown("**Largest donor weights**")
+        st.dataframe(w.rename("Weight").to_frame().style.format("{:.1%}"), width="stretch", height=380)
+    ui.source("Weights are ridge-penalized (cf. Abadie and L'Hour 2021). With more donor states than pre-period "
+              "quarters, unpenalized weights are not unique. Inference uses the post/pre RMSPE ratio across "
+              f"{len(syn['ratios'])} placebo runs.")
 
-# ---------------------------------------------------------------- spec curve
+# ---------------------------------------------------------------- robustness
 with tabs[4]:
-    sc = did.spec_curve(df, spec)
-    sc["label"] = sc.controls + " · " + sc.sector.str.split(" \\(").str[0] + " · " + sc.sample_start + \
-        np.where(sc.state_trends, " · trends", "")
+    sc = cached_curve(spec)
+    sc["label"] = (sc.controls + " · " + sc.sector.str.split(" \\(").str[0] + " · from " + sc.sample_start +
+                   np.where(sc.state_trends, " · trends", ""))
+    neg = (sc.est_pct < 0).mean()
+    nsig = int((sc.p_perm < 0.10).sum())
     fig = go.Figure(go.Scatter(
-        x=list(range(len(sc))), y=sc.est_pct, mode="markers",
-        marker=dict(size=10, color=np.where(sc.p_perm < 0.10, ACCENT, GREY)),
-        text=sc.label + "<br>p = " + sc.p_perm.round(3).astype(str), hoverinfo="text+y"))
-    fig.add_hline(y=0, line_color="black", line_width=1)
-    fig.update_layout(title=f"Specification curve: {len(sc)} estimates for {outcome_name.lower()} "
-                            f"(blue = permutation p < 0.10)",
-                      xaxis_title="Specifications, sorted by estimate", yaxis_title="Effect, %",
-                      height=440, template="simple_white")
+        x=list(range(1, len(sc) + 1)), y=sc.est_pct, mode="markers",
+        marker=dict(size=9, color=np.where(sc.p_perm < 0.10, NAVY, SKY), line=dict(width=0)),
+        text=sc.label + "<br>p = " + sc.p_perm.round(2).astype(str), hoverinfo="text+y"))
+    fig.add_hline(y=0, line_color=GREY, line_width=1)
+    fig.update_layout(title=ui.exhibit(5, f"{neg:.0%} of {len(sc)} specifications are negative; "
+                                          f"{nsig} are significant at the 10% level"),
+                      xaxis_title="Specification, sorted by estimate", yaxis_title="Effect, %", height=440)
     st.plotly_chart(fig, width="stretch")
-    st.dataframe(sc.drop(columns="label").style.format({"est_pct": "{:+.2f}", "p_perm": "{:.3f}"}),
-                 width="stretch", height=300)
+    ui.source("Dark points: permutation p < 0.10. Specifications vary the control group, sector, sample start and "
+              f"state trends, holding the outcome ({outcome_lc}) fixed.")
+    st.dataframe(sc.drop(columns="label").rename(columns={
+        "controls": "Control group", "sector": "Sector", "sample_start": "Sample start",
+        "state_trends": "State trends", "est_pct": "Effect, %", "p_perm": "p-value", "n_controls": "Controls"})
+        .style.format({"Effect, %": "{:+.2f}", "p-value": "{:.2f}"}), width="stretch", height=300)
 
 # ---------------------------------------------------------------- regression
 with tabs[5]:
-    m = did.twfe_regression(df, spec)
-    b_, se = m.params["treat_post"], m.std_errors["treat_post"]
-    tbl = pd.DataFrame({
-        "": ["Coefficient (log points)", "Effect (%)", "Clustered SE", "Clustered p-value",
-             "Permutation p-value", "Observations", "Fixed effects"],
-        "TWFE DiD": [f"{b_:.4f}", f"{pct(b_):+.2f}", f"{se:.4f}", f"{m.pvalues['treat_post']:.4f}",
-                     f"{res.p_perm:.3f}", f"{int(m.nobs):,}",
-                     "state × quarter-of-year, quarter" + (", state trends" if trend else "")],
-    })
-    st.table(tbl.set_index(""))
-    st.warning("Clustered standard errors assume many treated clusters. With a single treated state they "
-               "understate uncertainty, which is why the clustered p-value looks far stronger than the "
-               "permutation p-value (Conley and Taber 2011). Trust the permutation test.")
+    m = cached_twfe(spec)
+    tbl = pd.DataFrame({"Two-way fixed effects": {
+        "Treated × post (log points)": f"{m['b']:.4f}",
+        "Effect (%)": f"{pct(m['b']):+.2f}",
+        "Clustered standard error": f"{m['se']:.4f}",
+        "Clustered p-value": f"{m['p']:.3f}",
+        "Permutation p-value": f"{res.p_perm:.3f}",
+        "Observations": f"{int(m['n']):,}",
+        "Fixed effects": "State × quarter-of-year, quarter" + (", state trends" if trend else ""),
+    }})
+    st.table(tbl)
+    st.markdown("Clustered standard errors assume many treated clusters. With one treated state they understate "
+                "uncertainty (Conley and Taber 2011), which is why the clustered p-value is far smaller than the "
+                "permutation p-value. Inference here is based on the permutation test.")
 
-# ---------------------------------------------------------------- method
+# ---------------------------------------------------------------- methodology
 with tabs[6]:
     st.markdown(r"""
-**Question.** Did California's AB 1228 ($16 → $20 for fast-food chains, April 1, 2024) reduce employment?
+**Data.** BLS Quarterly Census of Employment and Wages, private ownership, state level. Treated sector: NAICS 722513
+(limited-service restaurants). Within-state comparison: NAICS 722511 (full-service restaurants). Employment is the
+mean of the three monthly counts in each quarter.
 
-**Data.** BLS Quarterly Census of Employment and Wages, private ownership, state level.
-NAICS 722513 (limited-service restaurants) is the treated sector; NAICS 722511 (full-service) is the
-within-state comparison for the triple difference. Employment is the average of the three monthly counts.
+**Estimator.** For log outcome $y_{st}$, each state's quarter-of-year means (and optionally a linear trend) are
+estimated on the pre-period only and removed, giving $\tilde y_{st}$. The gap and the estimate are
 
-**Estimator.** For log outcome $y_{st}$, remove each state's quarter-of-year mean (and optionally a linear
-trend) using pre-period data only, giving $\tilde y_{st}$. The gap is
-
-$$g_t = \tilde y_{CA,t} - \frac{1}{N}\sum_{c} \tilde y_{c,t}, \qquad
+$$g_t = \tilde y_{\text{treated},t} - \frac{1}{N}\sum_{c} \tilde y_{c,t}, \qquad
 \hat\delta = \bar g_{\text{post}} - \bar g_{\text{pre}}.$$
 
-The anticipation window (signing to start date) is excluded from both averages.
+Quarters between signing and the effective date are excluded.
 
-**Triple difference.** The outcome becomes $\ln(\text{limited}) - \ln(\text{full})$ within each state, which nets
-out shocks that hit all California restaurants, such as local demand, costs, or a statewide slowdown.
+**Triple difference.** The outcome becomes $\ln(\text{limited-service}) - \ln(\text{full-service})$ within each
+state, which removes shocks common to all restaurants in a state.
 
-**Inference.** Each control state is treated as a placebo, and $\hat\delta$ is ranked against the placebo
-distribution. Synthetic control (Abadie et al. 2010) builds a weighted donor pool fitted on the pre-period and
-is tested with the post/pre RMSPE ratio.
+**Inference.** Each control state is assigned the policy in turn, and $\hat\delta$ is ranked against that
+placebo distribution.
 
-**Limitations.** QCEW covers all limited-service restaurants, including chains under 60 locations that the law
-exempts, which biases estimates toward zero. State-level data cannot separate hours from headcount. Other
-California shocks after April 2024 (for example, the 2024 health-care minimum wage) are not separated out.
+**Limitations.** QCEW includes limited-service restaurants exempt from AB 1228 (chains with fewer than 60
+locations), which biases estimates toward zero. State-level data do not separate hours from headcount.
 """)

@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from linearmodels.iv.absorbing import AbsorbingLS
-from scipy.optimize import minimize
+from scipy.optimize import nnls
 
 DATA = Path(__file__).parent / "data" / "qcew_state_restaurants.csv"
 
@@ -162,23 +162,31 @@ def twfe_regression(df: pd.DataFrame, spec: Spec):
     return m
 
 
-def synth(R: pd.DataFrame, treated: str, donors: list[str], pre: np.ndarray):
+def synth(R: pd.DataFrame, treated: str, donors: list[str], pre: np.ndarray, ridge: float = 0.05):
+    """Ridge-penalized synthetic control weights:
+        min ||x1 - X0 w||^2 + eta ||w||^2   s.t. w >= 0, sum(w) = 1.
+    With many more donors than pre-periods the unpenalized problem has infinitely many
+    perfect fits, so the weights are not identified; the ridge term selects the most
+    diversified one (cf. Abadie and L'Hour 2021). eta = ridge x average donor pre-period
+    sum of squares. Solved as NNLS with the adding-up row weighted heavily."""
     X0 = R.loc[pre, donors].values
     x1 = R.loc[pre, treated].values
     n = len(donors)
-    res = minimize(lambda w: ((x1 - X0 @ w) ** 2).sum(), np.full(n, 1 / n), method="SLSQP",
-                   bounds=[(0, 1)] * n, constraints={"type": "eq", "fun": lambda w: w.sum() - 1},
-                   options={"maxiter": 500, "ftol": 1e-12})
-    w = pd.Series(res.x, index=donors).clip(lower=0)
+    eta = ridge * float((X0 ** 2).sum()) / n
+    lam = 1e3 * max(1.0, float((X0 ** 2).sum()))
+    A = np.vstack([X0, np.sqrt(eta) * np.eye(n), np.sqrt(lam) * np.ones(n)])
+    b = np.r_[x1, np.zeros(n), np.sqrt(lam)]
+    w, _ = nnls(A, b, maxiter=50 * n)
+    w = pd.Series(w, index=donors)
     w /= w.sum()
     synthetic = R[donors] @ w
     return w, synthetic
 
 
-def run_synth(res: Result):
+def run_synth(res: Result, ridge: float = 0.05):
     R, pre, post, tr = res.R, res.pre_mask, res.post_mask, res.spec.treated
     donors = [c for c in R.columns if c != tr]
-    w, s = synth(R, tr, donors, pre)
+    w, s = synth(R, tr, donors, pre, ridge)
     gap = R[tr] - s
 
     def ratio(g):
@@ -186,7 +194,7 @@ def run_synth(res: Result):
 
     ratios, plac = {}, {}
     for c in donors:
-        _, sc = synth(R, c, [d for d in donors if d != c], pre)
+        _, sc = synth(R, c, [d for d in donors if d != c], pre, ridge)
         g = R[c] - sc
         plac[c] = g
         ratios[c] = ratio(g)

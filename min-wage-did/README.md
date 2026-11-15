@@ -1,51 +1,45 @@
-# Minimum Wage Policy Evaluator
+# The $20 Fast-Food Wage
 
-An interactive tool for evaluating state minimum wage policies with difference-in-differences, event studies,
-synthetic control, and randomization inference. The default case is **California's AB 1228**, which raised
-the minimum wage for fast-food chains from $16 to $20 an hour on April 1, 2024.
+California's AB 1228 raised the minimum wage at fast-food chains with 60 or more locations from $16 to $20 an hour
+on April 1, 2024. This project estimates its effect on employment and wages with BLS Quarterly Census of
+Employment and Wages data for all 50 states and DC.
 
-## Headline results (BLS QCEW, 2022Q1–2026Q1)
+## Results (2022Q1–2026Q1, California vs. all other states)
 
-| Specification | Effect | Permutation p |
+| Outcome | Effect | Permutation p |
 | --- | --- | --- |
-| Limited-service employment vs all other states | −2.9% | 0.16 |
-| Limited-service employment, synthetic control | −5.0% | 0.10 |
-| Limited-service average weekly wage (first stage) | +5.5% | 0.06 |
-| Triple difference: limited minus full-service employment | +0.3% | 0.92 |
+| Fast-food average weekly wage | +5.5% | 0.06 |
+| Fast-food employment, difference-in-differences | −2.9% | 0.16 |
+| Fast-food employment, synthetic control | −4.0% | 0.31 |
+| Full-service restaurant employment (not covered by the law) | −3.2% | 0.18 |
+| Triple difference: fast food minus full service | +0.3% | 0.92 |
 
-The law clearly raised fast-food pay. Fast-food employment fell about 3% relative to other states, but
-full-service restaurants in California, which the law does not cover, fell by about the same amount. Once that
-California-wide restaurant shock is netted out (triple difference), there is no detectable employment effect.
-The conventional clustered standard error makes the −2.9% look highly significant (p < 0.001). With a single
-treated state, that is misleading (Conley and Taber 2011), and the tool shows both tests side by side.
+The law raised fast-food pay. Fast-food employment fell about 3% relative to other states, but full-service
+restaurants in California, which the law does not cover, fell by a similar amount. Netting out that statewide
+restaurant trend leaves no detectable employment effect. 29 of 36 robustness specifications are negative, and one
+is significant at the 10% level.
 
-## What the tool does
+A conventional clustered standard error gives p < 0.001 for the same −2.9% estimate. With a single treated state,
+clustered errors understate uncertainty (Conley and Taber 2011), so inference here relies on permutation tests.
 
-- **DiD and event study**, with seasonality removed using state × quarter-of-year effects fit on pre-period data only
-- **Anticipation window** between signing (Sep 2023) and the effective date, excluded from the estimate
-- **Placebo-state permutation inference** and a 90% placebo band on the event study
-- **Synthetic control** with donor weights and RMSPE-ratio inference
-- **Triple difference**, using full-service restaurants in the same state as an extra control
-- **Specification curve** across control groups, sectors, sample windows, and state trends
-- Works for any state and any policy date: change the treated state and quarters in the sidebar
+## Methods
 
-## Run it
-
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r ../requirements.txt
-python fetch_qcew.py        # downloads ~3,000 state-quarter rows from the BLS QCEW open-data API
-streamlit run app.py
-```
+- Seasonality removed with state × quarter-of-year effects estimated on the pre-period only
+- Quarters between signing (September 2023) and the effective date excluded
+- Event study with a placebo band built by assigning the policy to every control state
+- Synthetic control with ridge-penalized weights; with more donor states than pre-period quarters, unpenalized
+  weights are not unique
+- Triple difference using full-service restaurants in the same state
+- Specification curve across control groups, sectors, sample windows and state trends
+- Any state and policy date can be analyzed
 
 ## Files
 
-- `fetch_qcew.py`: downloads QCEW data for NAICS 722513 (limited-service) and 722511 (full-service)
-- `did.py`: estimation engine (DiD, event study, synthetic control, TWFE, permutation tests, specification curve)
+- `fetch_qcew.py`: downloads QCEW data for NAICS 722513 and 722511
+- `did.py`: estimators and inference
 - `app.py`: Streamlit interface
 
 ## Limitations
 
-QCEW counts all limited-service restaurants, including the small chains AB 1228 exempts, which biases estimates
-toward zero. State-level data cannot separate hours from headcount, and other California shocks after April 2024
-are not modeled separately.
+QCEW includes limited-service restaurants exempt from the law, which biases estimates toward zero. State-level
+data do not separate hours from headcount.

@@ -1,34 +1,41 @@
 # LBO Engine
 
-An interactive leveraged buyout model in Python. It replicates a banker-style LBO spreadsheet, including the
-circular interest calculation, and adds analytics a spreadsheet makes painful: an exact value-creation bridge,
-a max-price solver, sensitivity grids and Monte Carlo exit risk. It imports deal inputs straight from my
-**CIM Analyzer** JSON memos.
-
-## Features
-
-- **Sources & uses** with transaction and financing fees, minimum cash, and sponsor equity as the plug
-- **Tranche-level debt schedule**: any number of tranches with cash and PIK interest, mandatory amortization,
-  an excess-cash sweep in priority order, and a revolver that draws on shortfalls and is repaid first
-- **Average-balance interest**, solved by fixed-point iteration (the spreadsheet circular reference)
-- **Returns**: IRR, MOIC, and a management promote on the equity gain
-- **Value-creation bridge**, exact to the dollar: EBITDA growth, multiple expansion, deleveraging, fees, promote
-- **Max entry price solver**: the highest EV/EBITDA that still clears a target IRR
-- **Sensitivities**: IRR heatmaps for entry × exit multiple and leverage × revenue growth
-- **Credit stats** with a leverage covenant test
-- **Monte Carlo**: shocks to the exit multiple, growth and margin; P(hitting the hurdle), P(loss), tail IRR
-- **Excel export** of every schedule
+A five-year leveraged buyout model in Python. It reproduces the mechanics of a standard LBO spreadsheet,
+including the circular interest calculation, and adds analysis that is slow to build in Excel: an exact
+value-creation bridge, a maximum-price solver, two-way sensitivities and Monte Carlo exit risk. Deal inputs can be
+loaded from a CIM Analyzer memo.
 
 ## Base case
 
-$250m revenue, 20% → 23% margin, 10.0x in and out, 5.5x leverage (4.0x TLB + 1.5x notes):
-**2.45x MOIC / 19.6% IRR**. EBITDA growth drives about 80% of value creation. The sponsor can pay up to
-**9.9x** for a 20% IRR.
+$250M revenue, EBITDA margin expanding from 20% to 23%, 9.5x entry and exit, 5.5x leverage (4.0x term loan B,
+1.5x senior notes).
 
-## Run and test
+| Metric | Value |
+| --- | --- |
+| IRR / MOIC | 20.7% / 2.56x |
+| Leverage, entry → exit | 5.5x → 2.0x |
+| Maximum entry multiple for a 20% IRR | 9.6x |
+| Share of equity gain from EBITDA growth | 77% |
 
-```bash
-pip install -r ../requirements.txt
-streamlit run app.py
-python -m pytest test_lbo.py      # 10 tests: S&U balance, bridge tie-out, IRR/MOIC, cash-flow identity, solver
-```
+No multiple expansion is assumed; returns come from operating growth and debt paydown.
+
+## Model
+
+- **Sources and uses:** purchase price, transaction and financing fees, minimum cash; sponsor equity balances
+- **Debt schedule:** any number of tranches with cash and PIK interest, scheduled amortization, a cash sweep
+  applied in priority order, and a revolver that funds shortfalls and is repaid first
+- **Interest on average balances,** solved each year by fixed-point iteration
+- **Returns:** IRR and MOIC after a management promote on the equity gain
+- **Value-creation bridge:** EBITDA growth, multiple expansion, deleveraging, fees and promote, reconciling exactly
+  to exit equity
+- **Maximum-price solver:** highest entry multiple that clears a target IRR
+- **Sensitivities:** IRR by entry × exit multiple and by leverage × revenue growth; leverage covenant test
+- **Monte Carlo:** exit multiple, growth and margin shocks; probability of clearing the hurdle and of losing capital
+- **Excel export** of every schedule
+
+## Files
+
+- `lbo.py`: model, analytics and CIM import
+- `app.py`: Streamlit interface
+- `test_lbo.py`: 10 tests (sources equal uses, bridge reconciles, IRR/MOIC consistency, net-debt change equals
+  levered free cash flow, solver accuracy, revolver behavior under stress, CIM parsing)
